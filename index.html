@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>DC BEER · Gastos</title>
+<meta name="theme-color" content="#1A0A05">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Gastos">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Lato:wght@400;700&family=Playfair+Display:ital,wght@1,600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ============ LOGIN ============ -->
+<section id="login" class="login" hidden>
+  <form id="loginForm" class="login-card" autocomplete="on">
+    <div class="wordmark big"><span>DC BEER</span><em>Gastos</em></div>
+    <label>Correo
+      <input id="loginEmail" type="email" autocomplete="username" required inputmode="email">
+    </label>
+    <label>Contraseña
+      <input id="loginPass" type="password" autocomplete="current-password" required>
+    </label>
+    <button class="btn primary" id="loginBtn" type="submit">Entrar</button>
+    <p id="loginErr" class="err" role="alert"></p>
+  </form>
+</section>
+
+<!-- ============ APP ============ -->
+<div id="app" hidden>
+  <header class="top">
+    <div class="wordmark"><span>DC BEER</span><em>Gastos</em></div>
+    <div class="month-nav" aria-label="Mes">
+      <button id="prevM" class="icon" aria-label="Mes anterior">‹</button>
+      <strong id="monthLabel">—</strong>
+      <button id="nextM" class="icon" aria-label="Mes siguiente">›</button>
+    </div>
+    <button id="logout" class="icon ghost" title="Salir" aria-label="Salir">⎋</button>
+  </header>
+
+  <main class="wrap">
+    <section class="kpis" id="kpis"></section>
+
+    <nav class="tabs" role="tablist">
+      <button role="tab" data-tab="lista" class="on">Gastos</button>
+      <button role="tab" data-tab="resumen">Resumen</button>
+    </nav>
+
+    <div class="cols">
+      <section id="tab-lista" class="panel on">
+        <div id="lista"></div>
+      </section>
+
+      <section id="tab-resumen" class="panel">
+        <div class="card">
+          <h3>En qué se va la plata</h3>
+          <div class="donut-row">
+            <div class="chart-box donut"><canvas id="chCat" aria-label="Gastos por categoría"></canvas></div>
+            <ul id="catList" class="cat-list"></ul>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Gasto por día</h3>
+          <div class="chart-box"><canvas id="chDia" aria-label="Gasto por día"></canvas></div>
+        </div>
+        <div class="card">
+          <h3>Últimos 6 meses</h3>
+          <div class="chart-box"><canvas id="chMes" aria-label="Gasto por mes"></canvas></div>
+        </div>
+        <div class="card">
+          <h3>Mayores proveedores</h3>
+          <ol id="topProv" class="top-prov"></ol>
+        </div>
+        <div class="card export">
+          <h3>Exportar</h3>
+          <div class="row">
+            <button id="expCsv" class="btn">Mes en CSV (Excel)</button>
+            <button id="expJson" class="btn">Respaldo completo</button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <div class="actionbar">
+    <button id="btnCam" class="btn primary cam"><span aria-hidden="true">📷</span> Foto</button>
+    <button id="btnGal" class="btn"><span aria-hidden="true">🖼</span> Galería</button>
+    <button id="btnMan" class="btn"><span aria-hidden="true">✎</span> Manual</button>
+  </div>
+</div>
+
+<input id="fileCam" type="file" accept="image/*" capture="environment" hidden>
+<input id="fileGal" type="file" accept="image/*" hidden>
+
+<!-- ============ FORMULARIO ============ -->
+<div id="sheet" class="sheet" hidden>
+  <form id="gForm" class="sheet-card" autocomplete="off">
+    <div class="sheet-head">
+      <h2 id="sheetTitle">Nuevo gasto</h2>
+      <button type="button" id="gClose" class="icon ghost" aria-label="Cerrar">✕</button>
+    </div>
+
+    <div id="ocrBanner" class="banner" hidden></div>
+
+    <div id="photoRow" class="photo-row" hidden>
+      <img id="photoImg" alt="Soporte del gasto">
+      <div class="photo-actions">
+        <button type="button" id="photoRetake" class="btn small">Cambiar foto</button>
+        <button type="button" id="photoDrop" class="btn small ghost">Quitar</button>
+      </div>
+    </div>
+    <div id="noPhotoRow" class="row" hidden>
+      <button type="button" id="addCam" class="btn small">📷 Tomar foto</button>
+      <button type="button" id="addGal" class="btn small">🖼 Galería</button>
+    </div>
+
+    <div class="grid2">
+      <label>Fecha <input id="fFecha" type="date" required></label>
+      <label>Monto (COP) <input id="fMonto" type="text" inputmode="numeric" placeholder="0" required></label>
+    </div>
+    <label>Proveedor <input id="fProv" type="text" placeholder="¿A quién le pagaste?" maxlength="80"></label>
+    <label>Concepto <input id="fConcepto" type="text" placeholder="Ej: 2 barriles Vienna Lager" maxlength="120"></label>
+    <div class="grid2 stack">
+      <label>Categoría <select id="fCat" required></select></label>
+      <label>Pagado con <select id="fMetodo"></select></label>
+    </div>
+    <label>Nota (opcional) <input id="fNota" type="text" maxlength="160"></label>
+
+    <div class="sheet-foot">
+      <button type="button" id="gDelete" class="btn danger" hidden>Eliminar</button>
+      <span class="spacer"></span>
+      <button type="button" id="gCancel" class="btn ghost">Cancelar</button>
+      <button type="submit" class="btn primary" id="gSave">Guardar</button>
+    </div>
+  </form>
+</div>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>
