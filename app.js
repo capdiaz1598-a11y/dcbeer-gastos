@@ -18,6 +18,8 @@ const db = getDatabase(app);
 
 /* ---------- constantes ---------- */
 const DEFAULT_CATS = ['Barriles y cerveza', 'Insumos', 'Nómina', 'Arriendo', 'Servicios públicos', 'Mantenimiento y equipos', 'Marketing', 'Otros'];
+// Fijo = se paga igual venda o no venda. Variable = sube o baja con la operación. Editable desde el Resumen.
+const DEFAULT_TIPOS = { 'Arriendo': 'fijo', 'Nómina': 'fijo', 'Servicios públicos': 'fijo' };
 const METODOS = ['Efectivo', 'Transferencia', 'Tarjeta', 'Nequi / Daviplata', 'Otro'];
 // Paleta categórica validada sobre la superficie de las tarjetas (orden fijo). "Otros" va en gris.
 const PALETTE = ['#BE7A1E', '#4A8FC4', '#CC5A52', '#2FA395', '#9B74CC', '#7BA14A', '#C9709F'];
@@ -31,6 +33,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 /* ---------- estado ---------- */
 let gastos = {};
 let cats = [...DEFAULT_CATS];
+let tipos = { ...DEFAULT_TIPOS };
 let month = todayStr().slice(0, 7);
 let unsubs = [];
 let editId = null;
@@ -53,6 +56,7 @@ function colorFor(cat) {
   const i = cats.filter(c => c !== 'Otros').indexOf(cat);
   return i >= 0 && i < PALETTE.length ? PALETTE[i] : GRAY;
 }
+const tipoOf = c => (tipos[c] === 'fijo' ? 'fijo' : 'variable');
 const list = () => Object.entries(gastos).map(([id, g]) => ({ id, ...g }));
 const inMonth = m => list().filter(g => monthOf(g.fecha) === m);
 const sum = a => a.reduce((s, g) => s + (+g.monto || 0), 0);
@@ -84,6 +88,11 @@ onAuthStateChanged(auth, user => {
     const v = s.val();
     if (Array.isArray(v) && v.length) cats = v;
     else if (!seeded) { seeded = true; set(ref(db, 'config/categorias'), DEFAULT_CATS).catch(() => {}); }
+    renderAll();
+  }, permissionError));
+  unsubs.push(onValue(ref(db, 'config/tipos'), s => {
+    const v = s.val();
+    tipos = { ...DEFAULT_TIPOS, ...(v && typeof v === 'object' ? v : {}) };
     renderAll();
   }, permissionError));
   unsubs.push(onValue(ref(db, 'gastos'), s => { gastos = s.val() || {}; renderAll(); }, permissionError));
@@ -171,6 +180,7 @@ function renderSummary() {
   $('topProv').innerHTML = Object.entries(byProv).sort((a, b) => b[1] - a[1]).slice(0, 5)
     .map(([k, v]) => `<li><span>${esc(k)}</span><b>${COP.format(v)}</b></li>`).join('') || '<li class="muted">Sin datos este mes.</li>';
 
+  renderFV(cur, byCat);
   if (!chartDefaults()) return;
   const surface = '#3D1A0E';
   upsertChart('cat', 'chCat', {
@@ -197,6 +207,41 @@ function renderSummary() {
       scales: { x: { grid: { display: false } }, y: { beginAtZero: true, ticks: { callback: v => v >= 1e6 ? (v / 1e6) + ' M' : v >= 1e3 ? (v / 1e3) + ' mil' : v }, border: { display: false } } } },
   });
 }
+const FV_COLOR = { fijo: '#4A8FC4', variable: '#BE7A1E' };
+function renderFV(cur, byCat) {
+  const total = sum(cur);
+  const fijo = cur.filter(g => tipoOf(g.categoria) === 'fijo').reduce((s, g) => s + (+g.monto || 0), 0);
+  const vari = total - fijo;
+  const pct = v => (total ? Math.round(v / total * 100) : 0);
+  $('fvKpis').innerHTML = ['fijo', 'variable'].map(t => {
+    const v = t === 'fijo' ? fijo : vari;
+    return `<div class="fv-k"><span class="sw" style="background:${FV_COLOR[t]}"></span><small>${t === 'fijo' ? 'Costos fijos' : 'Costos variables'}</small><b>${COP.format(v)}</b><em>${pct(v)}% del gasto</em></div>`;
+  }).join('');
+  $('fvBar').innerHTML = total
+    ? `<i style="flex:${fijo || 0.0001};background:${FV_COLOR.fijo}"></i><i style="flex:${vari || 0.0001};background:${FV_COLOR.variable}"></i>` : '';
+  // categorías (incluye las que no tienen gasto este mes para poder reasignarlas)
+  const all = cats.map(c => ({ c, v: byCat[c] || 0, t: tipoOf(c) }));
+  const col = t => all.filter(x => x.t === t).sort((a, b) => b.v - a.v)
+    .map(x => `<button class="fv-cat" data-cat="${esc(x.c)}" title="Pasar a ${t === 'fijo' ? 'variable' : 'fijo'}"><span>${esc(x.c)}</span><b>${COP.format(x.v)}</b></button>`).join('') || '<p class="muted">Ninguna</p>';
+  $('fvCats').innerHTML = `<div><h4 style="color:${FV_COLOR.fijo}">Fijos</h4>${col('fijo')}</div><div><h4 style="color:${FV_COLOR.variable}">Variables</h4>${col('variable')}</div>`;
+  if (!chartDefaults()) return;
+  const ms = Array.from({ length: 6 }, (_, i) => shiftMonth(month, i - 5));
+  const part = (m, t) => inMonth(m).filter(g => tipoOf(g.categoria) === t).reduce((s, g) => s + (+g.monto || 0), 0);
+  const ds = t => ({ label: t === 'fijo' ? 'Fijos' : 'Variables', data: ms.map(m => part(m, t)), backgroundColor: FV_COLOR[t], borderColor: '#3D1A0E', borderWidth: 2, maxBarThickness: 44 });
+  upsertChart('fv', 'chFV', {
+    type: 'bar', data: { labels: ms.map(x => monthName(x, false)), datasets: [ds('fijo'), ds('variable')] },
+    options: { maintainAspectRatio: false,
+      plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, boxHeight: 12, color: '#F2E4A8' } }, tooltip: { ...tip, callbacks: { label: c => ` ${c.dataset.label}: ${COP.format(c.parsed.y)}` } } },
+      scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, beginAtZero: true, ticks: { callback: v => v >= 1e6 ? (v / 1e6) + ' M' : v >= 1e3 ? (v / 1e3) + ' mil' : v }, border: { display: false } } } },
+  });
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('.fv-cat'); if (!b) return;
+  const c = b.dataset.cat, next = tipoOf(c) === 'fijo' ? 'variable' : 'fijo';
+  tipos = { ...tipos, [c]: next }; renderAll();
+  set(ref(db, 'config/tipos'), tipos).catch(() => toast('No se pudo guardar el cambio'));
+  toast(`${c}: ahora es costo ${next}`);
+});
 window.addEventListener('load', () => { if (!$('app').hidden) renderSummary(); });
 
 /* ---------- navegación ---------- */
@@ -219,11 +264,11 @@ function download(name, text, type) {
 $('expCsv').onclick = () => {
   const cell = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const rows = inMonth(month).sort((a, b) => a.fecha.localeCompare(b.fecha));
-  const csv = ['Fecha;Proveedor;Concepto;Categoría;Pagado con;Monto;Nota']
-    .concat(rows.map(g => [g.fecha, g.proveedor, g.concepto, g.categoria, g.metodo, g.monto, g.nota].map(cell).join(';'))).join('\r\n');
+  const csv = ['Fecha;Proveedor;Concepto;Categoría;Tipo;Pagado con;Monto;Nota']
+    .concat(rows.map(g => [g.fecha, g.proveedor, g.concepto, g.categoria, tipoOf(g.categoria) === 'fijo' ? 'Fijo' : 'Variable', g.metodo, g.monto, g.nota].map(cell).join(';'))).join('\r\n');
   download(`gastos-dcbeer-${month}.csv`, '﻿' + csv, 'text/csv;charset=utf-8');
 };
-$('expJson').onclick = () => download(`respaldo-gastos-dcbeer-${todayStr()}.json`, JSON.stringify({ categorias: cats, gastos }, null, 2), 'application/json');
+$('expJson').onclick = () => download(`respaldo-gastos-dcbeer-${todayStr()}.json`, JSON.stringify({ categorias: cats, tipos, gastos }, null, 2), 'application/json');
 
 /* ---------- formulario ---------- */
 function fillSelects() {
@@ -236,6 +281,8 @@ $('fCat').addEventListener('change', async () => {
   if (name && !cats.includes(name)) {
     const next = [...cats.filter(c => c !== 'Otros'), name, ...(cats.includes('Otros') ? ['Otros'] : [])];
     cats = next; set(ref(db, 'config/categorias'), next).catch(() => toast('No se pudo guardar la categoría'));
+    tipos = { ...tipos, [name]: confirm(`¿"${name}" es un costo FIJO (se paga igual todos los meses)?\n\nAceptar = Fijo · Cancelar = Variable`) ? 'fijo' : 'variable' };
+    set(ref(db, 'config/tipos'), tipos).catch(() => {});
   }
   fillSelects(); $('fCat').value = name && cats.includes(name) ? name : cats[0];
 });
