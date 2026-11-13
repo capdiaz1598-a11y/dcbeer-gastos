@@ -32,6 +32,8 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 
 /* ---------- estado ---------- */
 let gastos = {};
+let ventas = {};           // resumen diario que publica el POS: ventas/AAAA-MM-DD
+let ventasErr = false;
 let cats = [...DEFAULT_CATS];
 let tipos = { ...DEFAULT_TIPOS };
 let month = todayStr().slice(0, 7);
@@ -81,7 +83,7 @@ $('logout').addEventListener('click', () => signOut(auth));
 
 onAuthStateChanged(auth, user => {
   unsubs.forEach(u => u()); unsubs = [];
-  if (!user) { gastos = {}; $('app').hidden = true; $('login').hidden = false; return; }
+  if (!user) { gastos = {}; ventas = {}; ventasErr = false; $('app').hidden = true; $('login').hidden = false; return; }
   $('login').hidden = true; $('app').hidden = false;
   let seeded = false;
   unsubs.push(onValue(ref(db, 'config/categorias'), s => {
@@ -96,6 +98,7 @@ onAuthStateChanged(auth, user => {
     renderAll();
   }, permissionError));
   unsubs.push(onValue(ref(db, 'gastos'), s => { gastos = s.val() || {}; renderAll(); }, permissionError));
+  unsubs.push(onValue(ref(db, 'ventas'), s => { ventas = s.val() || {}; ventasErr = false; renderAll(); }, err => { console.error(err); ventasErr = true; renderAll(); }));
 });
 function permissionError(err) {
   console.error(err);
@@ -103,7 +106,7 @@ function permissionError(err) {
 }
 
 /* ---------- pintar ---------- */
-function renderAll() { renderHeader(); renderKpis(); renderList(); renderSummary(); }
+function renderAll() { renderHeader(); renderKpis(); renderList(); renderSummary(); renderVentas(); }
 
 function renderHeader() { $('monthLabel').textContent = monthName(month); $('nextM').disabled = month >= todayStr().slice(0, 7); }
 
@@ -235,6 +238,76 @@ function renderFV(cur, byCat) {
       scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, beginAtZero: true, ticks: { callback: v => v >= 1e6 ? (v / 1e6) + ' M' : v >= 1e3 ? (v / 1e3) + ' mil' : v }, border: { display: false } } } },
   });
 }
+/* ---------- ventas vs gastos (las ventas las publica el POS) ---------- */
+const V_COLOR = '#2FA395', G_COLOR = '#BE7A1E';
+const vList = () => Object.entries(ventas).map(([k, v]) => ({ ...v, fecha: k }));
+const vInMonth = m => vList().filter(v => monthOf(v.fecha) === m);
+const sumF = (a, f) => a.reduce((s, x) => s + (+x[f] || 0), 0);
+const pc = (a, b) => (b > 0 ? Math.round(a / b * 100) : 0);
+function renderVentas() {
+  if (!$('vsKpis')) return;
+  const curV = vInMonth(month), curG = inMonth(month);
+  const V = sumF(curV, 'total'), G = sum(curG), R = V - G;
+  const hasAny = vList().length > 0;
+  const tile = (color, label, value, sub, cls = '') =>
+    `<div class="fv-k"><span class="sw" style="background:${color}"></span><small>${label}</small><b class="${cls}">${value}</b><em>${sub}</em></div>`;
+  $('vsKpis').innerHTML =
+    tile(V_COLOR, 'Ventas', COP.format(V), `${sumF(curV, 'numVentas')} ventas`) +
+    tile(G_COLOR, 'Gastos', COP.format(G), V > 0 ? `${pc(G, V)}% de las ventas` : `${curG.length} gastos`) +
+    tile(R >= 0 ? '#8DBE7A' : '#E27A6E', 'Resultado', COP.format(R), 'Ventas menos gastos', R >= 0 ? 'pos' : 'neg') +
+    tile('#C4893A', 'Margen del mes', V > 0 ? Math.round(R / V * 100) + '%' : '—', 'De cada peso vendido', V > 0 ? (R >= 0 ? 'pos' : 'neg') : '');
+  const rec = sumF(curV, 'recargo');
+  $('vsNote').textContent = ventasErr
+    ? 'No tengo permiso para leer las ventas. Hay que ajustar las reglas de Firebase (ver aviso en el POS).'
+    : !hasAny ? 'Todavía no llegan ventas desde el POS. En el POS entra a Config → “Conectar con Gastos”.'
+    : !curV.length ? `No hay ventas registradas en ${monthName(month)}.`
+    : `Ventas = lo cobrado en el POS${rec ? ` (incluye ${COP.format(rec)} de recargo por tarjeta)` : ''}. Los gastos incluyen compras de barriles, así que el resultado es flujo de caja, no utilidad contable.`;
+
+  // equilibrio de costos fijos: ventas necesarias para que la ganancia bruta del POS cubra los fijos
+  const fijo = curG.filter(g => tipoOf(g.categoria) === 'fijo').reduce((s, g) => s + (+g.monto || 0), 0);
+  const base = sumF(curV, 'base'), gan = sumF(curV, 'ganancia');
+  const mb = base > 0 ? gan / base : 0;
+  let be;
+  if (!fijo) be = '<p class="muted">Aún no hay costos fijos registrados en este mes (Arriendo, Nómina, Servicios públicos).</p>';
+  else if (mb <= 0) be = '<p class="muted">Todavía no hay ganancia bruta del POS en este mes para calcular el equilibrio.</p>';
+  else {
+    const need = fijo / mb, done = Math.min(100, Math.round(base / need * 100)), ok = base >= need;
+    be = `<div class="be-line"><span>Costos fijos del mes</span><b>${COP.format(fijo)}</b></div>
+      <div class="be-line"><span>Ganancia bruta del POS sobre lo vendido</span><b>${Math.round(mb * 100)}%</b></div>
+      <div class="be-line"><span>Ventas para cubrir los fijos</span><b>${COP.format(need)}</b></div>
+      <div class="be-bar"><i class="${ok ? 'ok' : ''}" style="width:${done}%"></i></div>
+      <div class="be-line"><span>${ok ? 'Ya cubriste los fijos. Lo que sigue es ganancia.' : `Llevas ${done}%. Te faltan ${COP.format(need - base)} en ventas.`}</span></div>`;
+  }
+  $('vsBE').innerHTML = be;
+
+  // cada categoría frente a las ventas
+  const byCat = {};
+  curG.forEach(g => byCat[g.categoria] = (byCat[g.categoria] || 0) + (+g.monto || 0));
+  const rows = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
+  $('vsCats').innerHTML = rows.length
+    ? rows.map(([c, v]) => `<li><i style="background:${colorFor(c)}"></i><span class="n">${esc(c)}${V > 0 ? `<small>${pc(v, V)}% de las ventas</small>` : ''}</span><span class="v">${COP.format(v)}</span></li>`).join('')
+    : '<li class="muted">Sin gastos este mes.</li>';
+
+  // gráficas (solo si el panel se ve; en el celular se dibujan al abrir la pestaña)
+  if (!$('chVS').offsetParent || !chartDefaults()) return;
+  const surface = '#3D1A0E';
+  const axis = { beginAtZero: true, ticks: { callback: v => v >= 1e6 ? (v / 1e6) + ' M' : v >= 1e3 ? (v / 1e3) + ' mil' : v }, border: { display: false } };
+  const opts = { maintainAspectRatio: false,
+    plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, boxHeight: 12, color: '#F2E4A8' } }, tooltip: { ...tip, callbacks: { label: c => ` ${c.dataset.label}: ${COP.format(c.parsed.y)}` } } },
+    scales: { x: { grid: { display: false } }, y: axis } };
+  const ds = (label, data, color) => ({ label, data, backgroundColor: color, borderColor: surface, borderWidth: 1, maxBarThickness: 28, borderRadius: { topLeft: 4, topRight: 4 } });
+  const ms = Array.from({ length: 6 }, (_, i) => shiftMonth(month, i - 5));
+  upsertChart('vs', 'chVS', { type: 'bar',
+    data: { labels: ms.map(x => monthName(x, false)), datasets: [ds('Ventas', ms.map(x => sumF(vInMonth(x), 'total')), V_COLOR), ds('Gastos', ms.map(x => sum(inMonth(x))), G_COLOR)] }, options: opts });
+  const [y, m] = month.split('-').map(Number), nd = new Date(y, m, 0).getDate();
+  const vDay = Array(nd).fill(0), gDay = Array(nd).fill(0);
+  curV.forEach(v => vDay[+v.fecha.slice(8) - 1] += (+v.total || 0));
+  curG.forEach(g => gDay[+g.fecha.slice(8) - 1] += (+g.monto || 0));
+  upsertChart('vsdia', 'chVSdia', { type: 'bar',
+    data: { labels: vDay.map((_, i) => i + 1), datasets: [ds('Ventas', vDay, V_COLOR), ds('Gastos', gDay, G_COLOR)] },
+    options: { ...opts, scales: { x: { grid: { display: false }, ticks: { maxTicksLimit: 10 } }, y: axis } } });
+}
+
 document.addEventListener('click', e => {
   const b = e.target.closest('.fv-cat'); if (!b) return;
   const c = b.dataset.cat, next = tipoOf(c) === 'fijo' ? 'variable' : 'fijo';
@@ -251,6 +324,7 @@ document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
   document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b));
   document.querySelectorAll('.panel').forEach(p => p.classList.toggle('on', p.id === 'tab-' + b.dataset.tab));
   if (b.dataset.tab === 'resumen') setTimeout(renderSummary, 30);
+  if (b.dataset.tab === 'ventas') setTimeout(renderVentas, 30);
 });
 $('lista').addEventListener('click', e => { const it = e.target.closest('.item'); if (it) openForm(it.dataset.id); });
 

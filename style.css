@@ -151,12 +151,23 @@ select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,va
   .sheet{align-items:center}
   .sheet-card{border-radius:22px;max-height:90dvh}
 }
+#tab-ventas .vgrid{display:block}
+.be-bar{height:12px;border-radius:7px;background:var(--carbon);border:1px solid var(--line);overflow:hidden;margin:8px 0}
+.be-bar i{display:block;height:100%;background:var(--cobre)}
+.be-bar i.ok{background:var(--ok)}
+.be-line{display:flex;justify-content:space-between;gap:12px;font-size:14px;margin:4px 0}
+.be-line b{color:var(--oro)}
+.pos{color:var(--ok)!important}.neg{color:var(--danger)!important}
+@media (min-width:980px){
+  #tab-ventas{grid-column:1/-1;order:-1}
+  #tab-ventas .vgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+}
 @media (max-width:520px){.grid2.stack{grid-template-columns:1fr}}
 @media (max-width:380px){.grid2{grid-template-columns:1fr}.kpi.hero b{font-size:40px}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 
 /* Fijos vs variables */
-.fv-kpis{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+.fv-kpis{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px;margin-bottom:10px}
 .fv-k{position:relative;background:var(--carbon);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
 .fv-k .sw{position:absolute;left:0;top:10px;bottom:10px;width:4px;border-radius:0 4px 4px 0}
 .fv-k small{display:block;color:var(--muted);font-size:12px;letter-spacing:.06em;text-transform:uppercase}

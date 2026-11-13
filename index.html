@@ -52,9 +52,35 @@
     <nav class="tabs" role="tablist">
       <button role="tab" data-tab="lista" class="on">Gastos</button>
       <button role="tab" data-tab="resumen">Resumen</button>
+      <button role="tab" data-tab="ventas">Ventas</button>
     </nav>
 
     <div class="cols">
+      <section id="tab-ventas" class="panel">
+        <div class="card" id="vsHead">
+          <h3>Ventas vs gastos</h3>
+          <div id="vsKpis" class="fv-kpis"></div>
+          <p id="vsNote" class="muted"></p>
+        </div>
+        <div class="vgrid">
+          <div class="card">
+            <h3>Últimos 6 meses</h3>
+            <div class="chart-box"><canvas id="chVS" aria-label="Ventas y gastos por mes"></canvas></div>
+          </div>
+          <div class="card">
+            <h3>Día por día</h3>
+            <div class="chart-box"><canvas id="chVSdia" aria-label="Ventas y gastos por día"></canvas></div>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Equilibrio de costos fijos</h3>
+          <div id="vsBE"></div>
+        </div>
+        <div class="card">
+          <h3>Cada categoría frente a las ventas</h3>
+          <ul id="vsCats" class="cat-list"></ul>
+        </div>
+      </section>
       <section id="tab-lista" class="panel on">
         <div id="lista"></div>
       </section>
