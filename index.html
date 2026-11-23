@@ -57,8 +57,16 @@
 
     <div class="cols">
       <section id="tab-ventas" class="panel">
+        <div class="card" id="vsNetaCard">
+          <h3>Tu ganancia neta del mes</h3>
+          <div id="vsNeto"></div>
+        </div>
+        <div class="card">
+          <h3>¿Ya pagué los costos fijos?</h3>
+          <div id="vsBE"></div>
+        </div>
         <div class="card" id="vsHead">
-          <h3>Ventas vs gastos</h3>
+          <h3>Entró vs salió (flujo de caja)</h3>
           <div id="vsKpis" class="fv-kpis"></div>
           <p id="vsNote" class="muted"></p>
         </div>
@@ -71,10 +79,6 @@
             <h3>Día por día</h3>
             <div class="chart-box"><canvas id="chVSdia" aria-label="Ventas y gastos por día"></canvas></div>
           </div>
-        </div>
-        <div class="card">
-          <h3>Equilibrio de costos fijos</h3>
-          <div id="vsBE"></div>
         </div>
         <div class="card">
           <h3>Cada categoría frente a las ventas</h3>

@@ -252,31 +252,62 @@ function renderVentas() {
   const tile = (color, label, value, sub, cls = '') =>
     `<div class="fv-k"><span class="sw" style="background:${color}"></span><small>${label}</small><b class="${cls}">${value}</b><em>${sub}</em></div>`;
   $('vsKpis').innerHTML =
-    tile(V_COLOR, 'Ventas', COP.format(V), `${sumF(curV, 'numVentas')} ventas`) +
-    tile(G_COLOR, 'Gastos', COP.format(G), V > 0 ? `${pc(G, V)}% de las ventas` : `${curG.length} gastos`) +
-    tile(R >= 0 ? '#8DBE7A' : '#E27A6E', 'Resultado', COP.format(R), 'Ventas menos gastos', R >= 0 ? 'pos' : 'neg') +
-    tile('#C4893A', 'Margen del mes', V > 0 ? Math.round(R / V * 100) + '%' : '—', 'De cada peso vendido', V > 0 ? (R >= 0 ? 'pos' : 'neg') : '');
+    tile(V_COLOR, 'Entró (ventas)', COP.format(V), `${sumF(curV, 'numVentas')} ventas`) +
+    tile(G_COLOR, 'Salió (gastos)', COP.format(G), V > 0 ? `${pc(G, V)}% de las ventas` : `${curG.length} gastos`) +
+    tile(R >= 0 ? '#8DBE7A' : '#E27A6E', 'Entró − salió', COP.format(R), 'Incluye compra de barriles', R >= 0 ? 'pos' : 'neg') +
+    tile('#C4893A', 'Proporción', V > 0 ? Math.round(R / V * 100) + '%' : '—', 'Del dinero que entró', V > 0 ? (R >= 0 ? 'pos' : 'neg') : '');
   const rec = sumF(curV, 'recargo');
   $('vsNote').textContent = ventasErr
     ? 'No tengo permiso para leer las ventas. Hay que ajustar las reglas de Firebase (ver aviso en el POS).'
     : !hasAny ? 'Todavía no llegan ventas desde el POS. En el POS entra a Config → “Conectar con Gastos”.'
     : !curV.length ? `No hay ventas registradas en ${monthName(month)}.`
-    : `Ventas = lo cobrado en el POS${rec ? ` (incluye ${COP.format(rec)} de recargo por tarjeta)` : ''}. Los gastos incluyen compras de barriles, así que el resultado es flujo de caja, no utilidad contable.`;
+    : `Ventas = lo cobrado en el POS${rec ? ` (incluye ${COP.format(rec)} de recargo por tarjeta)` : ''}. Aquí se cuenta la plata que entró y salió, incluidas las compras de barriles; por eso puede verse en rojo aunque el negocio vaya bien. Tu ganancia real está arriba, en “Tu ganancia neta”.`;
 
-  // equilibrio de costos fijos: ventas necesarias para que la ganancia bruta del POS cubra los fijos
-  const fijo = curG.filter(g => tipoOf(g.categoria) === 'fijo').reduce((s, g) => s + (+g.monto || 0), 0);
+  // ---- datos del mes para ganancia neta y equilibrio ----
+  // "Barriles y cerveza" ya está dentro del costo de lo vendido (lo calcula el POS), por eso no se resta otra vez.
+  const COGS = 'Barriles y cerveza';
   const base = sumF(curV, 'base'), gan = sumF(curV, 'ganancia');
-  const mb = base > 0 ? gan / base : 0;
+  const costoV = Math.max(0, base - gan);
+  const compras = curG.filter(g => g.categoria === COGS).reduce((s, g) => s + (+g.monto || 0), 0);
+  const opex = G - compras;
+  const neta = gan + rec - opex;
+  const cop = COP.format.bind(COP);
+  const line = (txt, val, cls = '') => `<div class="be-line"><span>${txt}</span><b class="${cls}">${val}</b></div>`;
+
+  // ---- GANANCIA NETA ----
+  if (!curV.length) {
+    $('vsNeto').innerHTML = '<p class="muted">Cuando el POS envíe las ventas del mes, aquí verás cuánto te queda libre después de pagar todo.</p>';
+  } else {
+    const ventasTot = base + rec;
+    $('vsNeto').innerHTML = `
+      <div class="neto-big ${neta >= 0 ? 'pos' : 'neg'}">${cop(neta)}</div>
+      <p class="neto-frase">${neta >= 0
+        ? `Después de pagar la cerveza que vendiste y todos los gastos del bar, <b>te quedan ${cop(neta)}</b> en ${monthName(month)}${ventasTot > 0 ? ` (unos $${Math.round(neta / ventasTot * 100)} de cada $100 vendidos)` : ''}.`
+        : `En ${monthName(month)} los gastos superan la ganancia por <b>${cop(-neta)}</b>.`}</p>
+      <div class="neto-calc">
+        ${line('Vendiste (sin recargo de tarjeta)', cop(base))}
+        ${line('− Costo de la cerveza y productos vendidos', cop(costoV))}
+        ${line('= Ganancia bruta (la calcula el POS)', cop(gan))}
+        ${rec ? line('+ Recargo de tarjeta que cobraste', cop(rec)) : ''}
+        ${line('− Gastos del bar (arriendo, nómina, servicios, insumos…)', cop(opex))}
+        <div class="be-line neto-total"><span>= GANANCIA NETA</span><b class="${neta >= 0 ? 'pos' : 'neg'}">${cop(neta)}</b></div>
+      </div>
+      <p class="muted">Las compras de barriles de este mes (${cop(compras)}) no se restan: son inventario y su costo ya está en “costo de la cerveza vendida”. Si pagas comisión del datáfono, regístrala como gasto para que se descuente. Se calcula con los ${curV.length} día(s) de ventas que el POS ha enviado este mes.</p>`;
+  }
+
+  // ---- EQUILIBRIO DE COSTOS FIJOS ----
+  const fijo = curG.filter(g => tipoOf(g.categoria) === 'fijo').reduce((s, g) => s + (+g.monto || 0), 0);
+  const mb = base > 0 ? (gan + rec) / base : 0;   // lo que te queda de cada peso vendido para pagar gastos
   let be;
-  if (!fijo) be = '<p class="muted">Aún no hay costos fijos registrados en este mes (Arriendo, Nómina, Servicios públicos).</p>';
-  else if (mb <= 0) be = '<p class="muted">Todavía no hay ganancia bruta del POS en este mes para calcular el equilibrio.</p>';
+  if (!fijo) be = '<p class="muted">Aún no hay costos fijos registrados este mes (Arriendo, Nómina, Servicios públicos). Cuando los registres, aquí verás cuánto debes vender para pagarlos.</p>';
+  else if (mb <= 0) be = '<p class="muted">Todavía no hay ventas del POS este mes para calcular cuánto debes vender.</p>';
   else {
     const need = fijo / mb, done = Math.min(100, Math.round(base / need * 100)), ok = base >= need;
-    be = `<div class="be-line"><span>Costos fijos del mes</span><b>${COP.format(fijo)}</b></div>
-      <div class="be-line"><span>Ganancia bruta del POS sobre lo vendido</span><b>${Math.round(mb * 100)}%</b></div>
-      <div class="be-line"><span>Ventas para cubrir los fijos</span><b>${COP.format(need)}</b></div>
+    be = `<p class="be-head ${ok ? 'pos' : ''}">${ok ? '✅ Ya pagaste los costos fijos del mes. Lo que vendas ahora es ganancia.' : `Te faltan <b>${cop(need - base)}</b> en ventas para pagar los costos fijos.`}</p>
       <div class="be-bar"><i class="${ok ? 'ok' : ''}" style="width:${done}%"></i></div>
-      <div class="be-line"><span>${ok ? 'Ya cubriste los fijos. Lo que sigue es ganancia.' : `Llevas ${done}%. Te faltan ${COP.format(need - base)} en ventas.`}</span></div>`;
+      ${line('Llevas vendido', cop(base))}
+      ${line('Meta de ventas del mes', cop(need))}
+      <p class="muted">Cómo se calcula: pagas ${cop(fijo)} de costos fijos. De cada $100 que vendes te quedan unos $${Math.round(mb * 100)} después de pagar la cerveza. Por eso necesitas vender ${cop(need)} para cubrirlos.</p>`;
   }
   $('vsBE').innerHTML = be;
 
