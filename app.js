@@ -106,7 +106,7 @@ function permissionError(err) {
 }
 
 /* ---------- pintar ---------- */
-function renderAll() { renderHeader(); renderKpis(); renderList(); renderSummary(); renderVentas(); }
+function renderAll() { renderHeader(); renderKpis(); renderList(); renderSummary(); renderVentas(); renderResultados(); }
 
 function renderHeader() { $('monthLabel').textContent = monthName(month); $('nextM').disabled = month >= todayStr().slice(0, 7); }
 
@@ -358,6 +358,97 @@ document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
   if (b.dataset.tab === 'ventas') setTimeout(renderVentas, 30);
 });
 $('lista').addEventListener('click', e => { const it = e.target.closest('.item'); if (it) openForm(it.dataset.id); });
+
+/* ---------- estado de resultados (P&G) ---------- */
+// Los gastos se empezaron a registrar en octubre 2026; antes de eso la ganancia neta no es confiable.
+const RES_DESDE = '2026-10';
+const RES_COGS = 'Barriles y cerveza'; // su costo ya está dentro del "costo de lo vendido" del POS, no se resta dos veces
+function calcMes(m) {
+  const vs = vInMonth(m), gs = inMonth(m);
+  const base = sumF(vs, 'base'), gan = sumF(vs, 'ganancia'), rec = sumF(vs, 'recargo');
+  const byCat = {}; let compras = 0;
+  gs.forEach(g => { const v = +g.monto || 0; if (g.categoria === RES_COGS) compras += v; else byCat[g.categoria] = (byCat[g.categoria] || 0) + v; });
+  const opex = Object.values(byCat).reduce((a, b) => a + b, 0);
+  return { m, dias: vs.length, base, rec, tot: base + rec, gan, costoV: Math.max(0, base - gan), byCat, compras, opex, neta: gan + rec - opex, nGastos: gs.length };
+}
+const cop = n => COP.format(n);
+const cm = n => (n < 0 ? '−' : '') + '$' + (Math.abs(n) / 1e6).toFixed(1).replace('.', ',') + ' M';
+const chg = (a, b) => (b ? Math.round((a - b) / Math.abs(b) * 100) : null);
+function resTexto(c) {
+  const L = [`DC BEER · Estado de resultados · ${monthName(c.m)}`, '',
+    `Ventas (sin recargo): ${cop(c.base)}`];
+  if (c.rec) L.push(`Recargo de tarjeta: ${cop(c.rec)}`);
+  L.push(`− Costo de la cerveza y productos vendidos: ${cop(c.costoV)}`, `= Ganancia bruta: ${cop(c.gan)}`, '', 'Gastos del bar:');
+  Object.entries(c.byCat).sort((a, b) => b[1] - a[1]).forEach(([k, v]) => L.push(`− ${k}: ${cop(v)}`));
+  L.push(`= Total gastos del bar: ${cop(c.opex)}`, '', `GANANCIA NETA: ${cop(c.neta)}`);
+  return L.join('\n');
+}
+function renderResultados() {
+  if (!$('resMain')) return;
+  const c = calcMes(month);
+  const titulo = `Estado de resultados · ${monthName(month)}`;
+  $('resTitulo').textContent = titulo;
+  if (month < RES_DESDE) {
+    $('resMain').innerHTML = `<p class="res-aviso">Los gastos se empezaron a registrar en ${monthName(RES_DESDE)}. Antes de ese mes no hay gastos completos, así que la ganancia neta no sería real. Usa las flechas de arriba para ir a ${monthName(RES_DESDE)} o después.</p>`;
+    $('resAcc').hidden = true; $('resCompCard').hidden = true; $('resHistCard').hidden = true; return;
+  }
+  $('resAcc').hidden = !c.dias;
+  const prevM = shiftMonth(month, -1);
+  const p = prevM >= RES_DESDE ? calcMes(prevM) : null;
+  const hayPrev = p && p.dias > 0;
+  const row = (lab, val, cls = '') => `<div class="er-row ${cls}"><span class="er-l">${lab}</span><b class="er-v">${cop(val)}</b><em class="er-p">${c.tot > 0 ? pc(val, c.tot) + '%' : ''}</em></div>`;
+  if (!c.dias) {
+    $('resMain').innerHTML = `<p class="res-aviso">Todavía no hay ventas del POS en ${monthName(month)}. Cuando el POS las envíe, aquí verás el estado de resultados.</p>`;
+    $('resCompCard').hidden = true;
+  } else {
+    const cambio = hayPrev ? chg(c.neta, p.neta) : null;
+    const frase = c.neta >= 0
+      ? `${monthName(month)} ganó <b>${cop(c.neta)}</b>${cambio === null ? '' : `, ${Math.abs(cambio)}% ${cambio >= 0 ? 'más' : 'menos'} que en ${monthName(prevM).toLowerCase()}`}.`
+      : `En ${monthName(month)} el bar perdió <b>${cop(-c.neta)}</b>.`;
+    const avisos = [];
+    if (!c.opex) avisos.push('Este mes no tiene gastos del bar registrados. La ganancia neta que ves no es confiable.');
+    if (month === todayStr().slice(0, 7)) avisos.push(`Mes en curso: se calcula con los ${c.dias} día(s) de ventas que el POS ha enviado hasta ahora.`);
+    const cats = Object.entries(c.byCat).sort((a, b) => b[1] - a[1]);
+    $('resMain').innerHTML = `
+      <p class="res-frase ${c.neta >= 0 ? '' : 'neg'}">${frase}</p>
+      ${avisos.map(a => `<p class="res-aviso">${a}</p>`).join('')}
+      <div class="er-head"><span></span><span>Valor</span><span>% ventas</span></div>
+      ${row('Ventas (sin recargo de tarjeta)', c.base)}
+      ${c.rec ? row('+ Recargo de tarjeta cobrado', c.rec) : ''}
+      ${row('− Costo de la cerveza y productos vendidos', c.costoV)}
+      ${row('= GANANCIA BRUTA', c.gan, 'er-sub')}
+      <div class="er-grupo">Gastos del bar</div>
+      ${cats.length ? cats.map(([k, v]) => row('− ' + esc(k), v, 'er-ind')).join('') : '<div class="er-row er-ind"><span class="er-l muted">Sin gastos registrados</span></div>'}
+      ${row('= Total gastos del bar', c.opex, 'er-sub')}
+      <div class="er-row er-tot"><span class="er-l">= GANANCIA NETA</span><b class="er-v ${c.neta >= 0 ? 'pos' : 'neg'}">${cop(c.neta)}</b><em class="er-p">${c.tot > 0 ? Math.round(c.neta / c.tot * 100) + '%' : ''}</em></div>
+      <p class="muted er-nota">Compras de barriles este mes: ${cop(c.compras)}. No se restan porque son inventario y su costo ya está en “costo de la cerveza y productos vendidos”. Si pagas comisión del datáfono, regístrala como gasto para que se descuente.</p>`;
+    // comparación con el mes anterior
+    if (hayPrev) {
+      const it = [['Ventas totales', 'tot', true], ['Ganancia bruta', 'gan', true], ['Gastos del bar', 'opex', false], ['Ganancia neta', 'neta', true]];
+      $('resCompTitulo').textContent = `Comparado con ${monthName(prevM)}`;
+      $('resComp').innerHTML = it.map(([lab, k, up]) => {
+        const d = c[k] - p[k], pcg = chg(c[k], p[k]), bien = up ? d >= 0 : d <= 0;
+        const txt = d === 0 ? '= igual' : `${d > 0 ? '▲' : '▼'} ${pcg === null ? cop(Math.abs(d)) : Math.abs(pcg) + '%'}`;
+        return `<div class="cmp-row"><span class="cmp-l">${lab}<small>${monthName(prevM, false)}: ${cop(p[k])}</small></span><b class="cmp-v">${cop(c[k])}</b><em class="cmp-d ${d === 0 ? '' : bien ? 'pos' : 'neg'}">${txt}</em></div>`;
+      }).join('');
+      $('resCompCard').hidden = false;
+    } else $('resCompCard').hidden = true;
+  }
+  // mes a mes (desde octubre, máximo 6)
+  const now = todayStr().slice(0, 7), ms = [];
+  for (let x = now; x >= RES_DESDE && ms.length < 6; x = shiftMonth(x, -1)) ms.unshift(x);
+  const hist = ms.map(calcMes);
+  if (hist.some(h => h.dias)) {
+    $('resHist').innerHTML = `<table class="er-tab"><thead><tr><th>Mes</th><th>Ventas</th><th>G. bruta</th><th>Gastos</th><th>G. neta</th></tr></thead><tbody>${hist.map(h => `<tr class="${h.m === month ? 'sel' : ''}"><td>${monthName(h.m, false)}</td><td>${h.dias ? cm(h.tot) : '—'}</td><td>${h.dias ? cm(h.gan) : '—'}</td><td>${cm(h.opex)}</td><td class="${h.dias ? (h.neta >= 0 ? 'pos' : 'neg') : ''}">${h.dias ? cm(h.neta) : '—'}</td></tr>`).join('')}</tbody></table><p class="muted er-nota">Cifras en millones de pesos (M).</p>`;
+    $('resHistCard').hidden = false;
+  } else $('resHistCard').hidden = true;
+}
+$('resShare').onclick = async () => {
+  const txt = resTexto(calcMes(month));
+  try { if (navigator.share) { await navigator.share({ text: txt }); return; } } catch (e) { if (e && e.name === 'AbortError') return; }
+  try { await navigator.clipboard.writeText(txt); toast('Copiado. Pégalo en WhatsApp.'); } catch (e) { toast('No se pudo copiar'); }
+};
+$('resPdf').onclick = () => { toast('En el menú de imprimir elige “Guardar como PDF”', 3500); setTimeout(() => window.print(), 600); };
 
 /* ---------- exportar ---------- */
 function download(name, text, type) {

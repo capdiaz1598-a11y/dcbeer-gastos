@@ -15,7 +15,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Lato:wght@400;700&family=Playfair+Display:ital,wght@1,600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=3">
+<link rel="stylesheet" href="style.css?v=4">
 </head>
 <body>
 
@@ -53,9 +53,28 @@
       <button role="tab" data-tab="lista" class="on">Gastos</button>
       <button role="tab" data-tab="resumen">Resumen</button>
       <button role="tab" data-tab="ventas">Ventas</button>
+      <button role="tab" data-tab="resultados">Resultados</button>
     </nav>
 
     <div class="cols">
+      <section id="tab-resultados" class="panel">
+        <div class="card" id="resMainCard">
+          <h3 id="resTitulo">Estado de resultados</h3>
+          <div id="resMain"></div>
+          <div class="res-acc" id="resAcc">
+            <button class="btn" id="resShare" type="button">Compartir</button>
+            <button class="btn" id="resPdf" type="button">Descargar PDF</button>
+          </div>
+        </div>
+        <div class="card" id="resCompCard" hidden>
+          <h3 id="resCompTitulo">Comparado con el mes anterior</h3>
+          <div id="resComp"></div>
+        </div>
+        <div class="card" id="resHistCard" hidden>
+          <h3>Mes a mes</h3>
+          <div class="er-scroll" id="resHist"></div>
+        </div>
+      </section>
       <section id="tab-ventas" class="panel">
         <div class="card" id="vsNetaCard">
           <h3>Tu ganancia neta del mes</h3>
@@ -184,6 +203,6 @@
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
-<script type="module" src="app.js?v=3"></script>
+<script type="module" src="app.js?v=4"></script>
 </body>
 </html>
